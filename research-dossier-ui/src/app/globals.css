@@ -1,0 +1,41 @@
+:root {
+  --bg: #14171f;
+  --bg-raised: #191d27;
+  --paper: #f6f1e7;
+  --paper-line: #d8cfb8;
+  --ink: #1e2128;
+  --ink-soft: #4a4d57;
+  --gold: #b8902e;
+  --teal: #3f6b5e;
+  --rust: #a34a3a;
+  --thread: #2a2f3c;
+  --thread-active: #b8902e;
+  --text-dim: #8b8f9e;
+  --text-bright: #e8e6df;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text-bright);
+}
+
+body {
+  font-family: var(--font-serif), Georgia, serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.mono {
+  font-family: var(--font-mono), 'JetBrains Mono', monospace;
+}
+
+::selection {
+  background: var(--gold);
+  color: var(--ink);
+}
