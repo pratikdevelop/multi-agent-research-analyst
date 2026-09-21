@@ -1,2 +1,6 @@
 .env
 node_modules/
+research-dossier-ui/.vercel
+research-dossier-ui/.next/
+.vercel
+.env*

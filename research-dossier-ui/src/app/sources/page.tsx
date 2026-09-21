@@ -27,7 +27,10 @@ export default function SourcesPage() {
 
   useEffect(() => {
     fetch('/api/kb')
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`Failed to load (${r.status})`)
+        return r.json()
+      })
       .then((data) => {
         if (data.error) setError(data.error)
         else setClaims(data.claims ?? [])
@@ -44,7 +47,7 @@ export default function SourcesPage() {
   }
 
   return (
-    <main style={{ maxWidth: 860, margin: '0 auto', padding: '56px 48px 96px' }}>
+    <main className="sources-shell" style={{ maxWidth: 860, margin: '0 auto' }}>
       <Link
         href="/"
         className="mono"

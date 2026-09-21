@@ -1,5 +1,4 @@
 {
-  "/api/kb/route": "app/api/kb/route.js",
-  "/page": "app/page.js",
-  "/sources/page": "app/sources/page.js"
+  "/api/research/route": "app/api/research/route.js",
+  "/page": "app/page.js"
 }

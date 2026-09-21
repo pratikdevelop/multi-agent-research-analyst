@@ -1,5 +1,7 @@
 'use client'
 
+import { useState } from 'react'
+
 export interface TraceStep {
   node: string
   label: string
@@ -15,8 +17,18 @@ const STEP_LABELS: Record<string, string> = {
 }
 
 export function AgentTrace({ steps, running }: { steps: TraceStep[]; running: boolean }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const completedNodes = new Set(steps.map((s) => s.node))
   const activeIndex = steps.length
+
+  function toggle(node: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(node)) next.delete(node)
+      else next.add(node)
+      return next
+    })
+  }
 
   return (
     <div className="mono" style={{ fontSize: 13, lineHeight: 1.6 }}>
@@ -29,6 +41,7 @@ export function AgentTrace({ steps, running }: { steps: TraceStep[]; running: bo
         const isActive = running && i === activeIndex
         const step = steps.find((s) => s.node === node)
         const isLast = i === ALL_STEPS.length - 1
+        const isOpen = expanded.has(node)
 
         return (
           <div key={node + i} style={{ display: 'flex', gap: 12 }}>
@@ -56,14 +69,20 @@ export function AgentTrace({ steps, running }: { steps: TraceStep[]; running: bo
               )}
             </div>
 
-            <div style={{ paddingBottom: 24, minWidth: 0 }}>
+            <div style={{ paddingBottom: 24, minWidth: 0, flex: 1 }}>
               <div
+                onClick={() => done && step?.preview && toggle(node)}
                 style={{
                   color: done ? 'var(--text-bright)' : isActive ? 'var(--gold)' : 'var(--text-dim)',
+                  cursor: done && step?.preview ? 'pointer' : 'default',
+                  userSelect: 'none',
                 }}
               >
                 {String(i + 1).padStart(2, '0')} · {STEP_LABELS[node]}
                 {isActive && <span style={{ opacity: 0.6 }}> — working…</span>}
+                {done && step?.preview && (
+                  <span style={{ opacity: 0.5, fontSize: 11 }}> {isOpen ? '[collapse]' : '[expand]'}</span>
+                )}
               </div>
               {step && step.preview && (
                 <div
@@ -71,14 +90,13 @@ export function AgentTrace({ steps, running }: { steps: TraceStep[]; running: bo
                     color: 'var(--text-dim)',
                     marginTop: 6,
                     fontSize: 12,
-                    maxHeight: 60,
+                    maxHeight: isOpen ? 'none' : 60,
                     overflow: 'hidden',
-                    textOverflow: 'ellipsis',
                     whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
                   }}
                 >
-                  {step.preview.slice(0, 160)}
-                  {step.preview.length > 160 ? '…' : ''}
+                  {isOpen ? step.preview : `${step.preview.slice(0, 160)}${step.preview.length > 160 ? '…' : ''}`}
                 </div>
               )}
             </div>

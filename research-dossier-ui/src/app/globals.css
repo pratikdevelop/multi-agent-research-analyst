@@ -39,3 +39,41 @@ body {
   background: var(--gold);
   color: var(--ink);
 }
+
+.layout-grid {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 48px;
+  padding: 56px 48px;
+  max-width: 1280px;
+  margin: 0 auto;
+  min-height: 100vh;
+}
+
+.sources-shell {
+  padding: 56px 48px 96px;
+}
+
+@media (max-width: 860px) {
+  .layout-grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+    padding: 32px 20px;
+  }
+
+  .sources-shell {
+    padding: 32px 20px 64px;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.9; }
+}
+
+.skeleton-line {
+  height: 14px;
+  border-radius: 2px;
+  background: var(--thread);
+  animation: pulse 1.6s ease-in-out infinite;
+}
