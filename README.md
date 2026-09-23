@@ -72,12 +72,15 @@ inference step where the model might miss the conflict.
 
 Being direct about this, since it matters for anyone reading the code:
 
-- **GROQ instead of Sanity Context MCP** — Sanity Context wasn't enabled on
-  my org during the build window, so `src/lib/agent/tools/sanityContext.ts`
-  queries Sanity's Content API directly via `@sanity/client` rather than
-  through the managed Context/MCP layer. The tool is isolated behind one
-  function specifically so this is swappable later without touching the
-  graph. See "Next steps" below.
+- **Sanity Context MCP, with a GROQ fallback** — the research agent connects
+  to the real Sanity Context MCP endpoint (`src/lib/agent/tools/sanityContextMcp.ts`),
+  using the `knowledge_base_read` tool it exposes and the `/initial-context`
+  grounding text Context recommends injecting into the system prompt. If MCP
+  isn't configured (missing env vars) or the connection fails at runtime, it
+  falls back automatically to a direct GROQ query
+  (`src/lib/agent/tools/sanityContext.ts`) against the same dataset — same
+  tool-call contract either way, so the rest of the agent doesn't know or
+  care which one served the request.
 - **UI-level approval gate, not a LangGraph interrupt** — LangGraph does
   have a real `interrupt()` / `Command({resume})` API for pausing execution
   mid-graph. I chose a simpler UI-level gate (the draft renders in an
@@ -153,11 +156,9 @@ covers the web app only.
 
 ## Next steps (if I keep building this)
 
-1. **Swap to real Sanity Context MCP** now that it's enabled — should be a
-   contained change to `sanityContext.ts` only
-2. **True graph-level interrupts** — replace the UI approval gate with
+1. **True graph-level interrupts** — replace the UI approval gate with
    LangGraph's actual `interrupt()`/resume flow
-3. **Multi-topic support** — the Knowledge Base currently has one deep
+2. **Multi-topic support** — the Knowledge Base currently has one deep
    topic; the architecture supports more without changes
-4. Token-by-token streaming from the Writing agent, rather than
+3. Token-by-token streaming from the Writing agent, rather than
    whole-node streaming
