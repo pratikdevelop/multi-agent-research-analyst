@@ -1,72 +1,163 @@
-# Multi-Agent Research Analyst (Sanity Challenge - Path 1)
+# Research Dossier
 
-A LangGraph supervisor that routes between research, analysis, writing and
-review agents. The research agent queries a Sanity Context Knowledge Base
-via MCP, so answers are source-linked and contradictions between sources are
-surfaced explicitly rather than silently resolved.
+A multi-agent research system that queries a structured Knowledge Base and
+**preserves disagreement between sources instead of flattening it into one
+confident answer**.
+
+Built with LangGraph, Groq, and Sanity, for the
+[Sanity Challenge](https://dev.to/challenges/sanity-2026-09-16) — this README
+covers the engineering decisions in more depth than the contest submission
+did, for anyone evaluating the code itself.
+
+**Live demo:** [multi-agent-research-analyst.vercel.app](https://multi-agent-research-analyst.vercel.app/)
+
+## The problem this solves
+
+Ask most RAG systems a question where the sources disagree, and you get one
+of two failure modes: the model picks a side silently, or it mushes both
+answers into a hedge that doesn't actually tell you anything is contested.
+
+This system's Knowledge Base has a real example: LangGraph's docs imply
+checkpoint serialization is safe by default, an official security advisory
+(CVE-2026-28277) says the default is actually permissive, and a second
+advisory database's framing of the same CVE adds that exploitation requires
+an attacker to already have privileged write access. Three true statements,
+in tension. The system is built to surface that tension explicitly rather
+than resolve it for you.
 
 ## Architecture
 
 ```
-research --> analysis --> writing --> review --+--> APPROVED --> END
-                              ^                 |
-                              +---- REVISE -----+   (max 2 retries)
+User question
+     │
+     ▼
+Research Agent ──queries──▶ GROQ (Sanity Content API)
+     │                             │
+     │                     claims + sources +
+     │                     contradicts[] relationships
+     ▼
+Analysis Agent (weighs conflicting claims by source trust)
+     │
+     ▼
+Writing Agent (drafts a cited report)
+     │
+     ▼
+Review Agent (hallucination gate — rejects unsupported claims,
+              bounces back to Writing, max 2 retries)
+     │
+     ▼
+Human approval gate (edit or approve before the case closes)
+     │
+     ▼
+Final report, stamped CONTESTED if sources disagreed
 ```
 
-- **research**: queries `sanity_knowledge_base` tool, never answers from
-  general knowledge alone
-- **analysis**: weighs conflicting claims by source trust level
-- **writing**: drafts a cited report
-- **review**: the hallucination gate - checks every claim traces back to
-  the research findings, sends the draft back to `writing` if not
+Each stage is a LangGraph node; `src/lib/agent/router.ts` reads the `next`
+field each node writes to shared state and decides where to go — including
+the retry loop back to Writing when Review rejects a draft.
 
-## Setup
+## Why a `contradicts` field, not just similarity search
 
-1. **Sanity project**
-   ```bash
-   cd sanity
-   npx sanity@latest init --project-id <existing-id-or-blank-for-new>
-   ```
-   This wires up the schemas already defined in `sanity/schemaTypes/`
-   (`topic`, `source`, `claim`).
+The Sanity schema (`sanity/schemaTypes/`) models three document types —
+`topic`, `source`, `claim` — where `claim` documents carry a `contradicts`
+field referencing other claims. That's the actual mechanism: a vector
+similarity search over the same text would return all three sources as
+plausible matches, but nothing in embedding space tells the agent that two
+of them are in *tension* rather than just topically related. Making
+`contradicts` an explicit graph edge means the research agent's GROQ query
+can pull a claim and its contradictions in a single request, with no
+inference step where the model might miss the conflict.
 
-2. **Populate content**
-   Open Sanity Studio (`npm run sanity:dev`) and add `topic` / `source` /
-   `claim` documents for your chosen domain. Use the `contradicts` field on
-   `claim` to link claims that disagree - this is what Sanity Context
-   surfaces as a flagged conflict.
+## What's real vs. what's a deliberate shortcut
 
-3. **Enable Sanity Context**
-   In your Sanity Dashboard, point Sanity Context at this dataset. Copy the
-   resulting MCP endpoint URL into `.env` as `SANITY_CONTEXT_MCP_URL`.
+Being direct about this, since it matters for anyone reading the code:
 
-4. **Install agent dependencies**
-   ```bash
-   npm install
-   cp .env.example .env   # fill in ANTHROPIC_API_KEY and SANITY_CONTEXT_MCP_URL
-   ```
+- **GROQ instead of Sanity Context MCP** — Sanity Context wasn't enabled on
+  my org during the build window, so `src/lib/agent/tools/sanityContext.ts`
+  queries Sanity's Content API directly via `@sanity/client` rather than
+  through the managed Context/MCP layer. The tool is isolated behind one
+  function specifically so this is swappable later without touching the
+  graph. See "Next steps" below.
+- **UI-level approval gate, not a LangGraph interrupt** — LangGraph does
+  have a real `interrupt()` / `Command({resume})` API for pausing execution
+  mid-graph. I chose a simpler UI-level gate (the draft renders in an
+  editable box; the stamped "final" view only appears after clicking
+  Approve) because it's lower-risk to ship correctly under deadline pressure
+  than an interrupt/resume flow I hadn't tested end-to-end. Functionally
+  equivalent for the user; architecturally a shortcut.
+- **Single-pass citation extraction is regex-based**, not structured data
+  passed through state. It works because the research tool's output format
+  is consistent, but it's coupled to that format — see `src/lib/citations.ts`.
 
-5. **Run it**
-   ```bash
-   npm run start -- "your research question about the domain"
-   ```
+## Running it
 
-## What's still a stub
+This is one of two projects in the repo — `cli/` (terminal agent) and
+`research-dossier-ui/` (this one, the web app). They each have their own
+`package.json`, `node_modules`, and `.env`, and share the same Sanity
+project/dataset.
 
-- `research.ts` does a single model pass rather than a full tool-call loop.
-  For production, loop: check `response.tool_calls`, execute
-  `sanityContextTool`, feed results back, repeat until the model stops
-  calling tools.
-- No test question set yet - before submitting, write down 2-3 questions
-  where a keyword search would get the wrong answer but this KB gets it
-  right. That's your proof point for the DEV writeup.
+```bash
+npm install
+cp .env.example .env
+# fill in GROQ_API_KEY, SANITY_API_TOKEN, SANITY_PROJECT_ID, SANITY_DATASET
+```
 
-## Submission checklist (Sanity Challenge, Path 1)
+**Web app:**
+```bash
+npm run dev
+```
 
-- [ ] Populate real claims/sources with at least one genuine contradiction
-- [ ] Complete the tool-call loop in `research.ts`
-- [ ] Record a build session in Claude Code for the embeddable transcript
-- [ ] Scrub the transcript for API keys before publishing
-- [ ] Write the DEV post from the Path One Submission Template
-- [ ] Tag `#sanitychallenge`, include Sanity project ID or public dataset URL
-- [ ] Submit by **October 4, 11:59 PM PDT**
+**Terminal version, same agent logic** — lives in the sibling `cli/` folder:
+```bash
+cd ../cli
+npm install   # separate install, separate node_modules
+npm run start -- "does LangGraph handle checkpoint deserialization safely by default?"
+```
+
+**Tests** (pure logic — router and citation parsing, no live API calls):
+```bash
+npm test
+```
+
+**Knowledge Base browser** — inspect the raw claims/sources/contradictions
+without asking a question first: `/sources` route once `npm run dev` is
+running.
+
+## Project structure
+
+```
+src/
+  app/
+    page.tsx              - chat UI, live agent trace, approval gate
+    sources/page.tsx       - Knowledge Base browser
+    api/research/route.ts  - SSE streaming endpoint
+    api/kb/route.ts        - Knowledge Base fetch endpoint
+  components/
+    AgentTrace.tsx          - live case-log of agent progress
+    ReportView.tsx          - the rendered dossier + CONTESTED stamp
+  lib/
+    citations.ts            - extracted, unit-tested citation parsing
+    agent/
+      graph.ts               - the compiled StateGraph
+      router.ts               - extracted, unit-tested routing logic
+      state.ts                 - shared graph state shape
+      agents/                   - research, analysis, writing, review nodes
+      tools/sanityContext.ts     - the Sanity query tool
+sanity/
+  schemaTypes/              - topic, source, claim schemas
+```
+
+Note: `cli/` (the terminal version) and `sanity/` (the Studio) are sibling
+folders at the repo root, outside `research-dossier-ui/` — this README
+covers the web app only.
+
+## Next steps (if I keep building this)
+
+1. **Swap to real Sanity Context MCP** now that it's enabled — should be a
+   contained change to `sanityContext.ts` only
+2. **True graph-level interrupts** — replace the UI approval gate with
+   LangGraph's actual `interrupt()`/resume flow
+3. **Multi-topic support** — the Knowledge Base currently has one deep
+   topic; the architecture supports more without changes
+4. Token-by-token streaming from the Writing agent, rather than
+   whole-node streaming

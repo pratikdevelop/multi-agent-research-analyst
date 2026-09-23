@@ -5,6 +5,12 @@ import Link from 'next/link'
 import { AgentTrace, type TraceStep } from '@/components/AgentTrace'
 import { ReportView } from '@/components/ReportView'
 
+const EXAMPLE_QUESTIONS = [
+  'Does LangGraph handle checkpoint deserialization safely by default?',
+  'Can third-party checkpointers be trusted with the same security guarantees as official ones?',
+  'How serious is the checkpoint deserialization risk in practice?',
+]
+
 export default function Home() {
   const [question, setQuestion] = useState('')
   const [running, setRunning] = useState(false)
@@ -92,6 +98,28 @@ export default function Home() {
         </Link>
 
         <div style={{ marginTop: 24 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+            {EXAMPLE_QUESTIONS.map((q) => (
+              <button
+                key={q}
+                onClick={() => setQuestion(q)}
+                disabled={running}
+                className="mono"
+                style={{
+                  background: 'var(--bg-raised)',
+                  border: '1px solid var(--thread)',
+                  color: 'var(--text-dim)',
+                  borderRadius: 12,
+                  padding: '4px 10px',
+                  fontSize: 11,
+                  cursor: running ? 'default' : 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                {q.length > 46 ? q.slice(0, 46) + '…' : q}
+              </button>
+            ))}
+          </div>
           <textarea
             value={question}
             onChange={(e) => setQuestion(e.target.value)}

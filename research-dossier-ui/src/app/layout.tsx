@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Source_Serif_4, JetBrains_Mono } from 'next/font/google'
+
 import './globals.css'
 
 const sourceSerif = Source_Serif_4({
@@ -17,6 +18,16 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: 'Research Dossier',
   description: 'A multi-agent research analyst that surfaces contradictions instead of hiding them.',
+  openGraph: {
+    title: 'Research Dossier',
+    description: 'A multi-agent research analyst that surfaces contradictions instead of hiding them.',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Research Dossier',
+    description: 'A multi-agent research analyst that surfaces contradictions instead of hiding them.',
+  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
