@@ -1,8 +1,9 @@
 import { HumanMessage } from '@langchain/core/messages'
 import { graph } from '@/lib/agent/graph'
+import { isRateLimited, getClientKey } from '@/lib/rateLimit'
 
 export const runtime = 'nodejs'
-export const maxDuration = 60
+export const maxDuration = 60 // multi-agent run = several sequential LLM calls, default 10s isn't enough
 
 const NODE_LABELS: Record<string, string> = {
   research_agent: 'Research',
@@ -11,13 +12,26 @@ const NODE_LABELS: Record<string, string> = {
   review_agent: 'Review',
 }
 
+const MAX_QUESTION_LENGTH = 500
+
 export async function POST(req: Request) {
+  const clientKey = getClientKey(req)
+
+  // 5 requests per 10 minutes per IP - generous for a demo, tight enough to
+  // stop someone from scripting a loop against it. See rateLimit.ts for the
+  // honest caveat about this being a stopgap, not real infrastructure.
+  if (isRateLimited(clientKey, 5, 10 * 60 * 1000)) {
+    return new Response('Too many requests - please wait a few minutes and try again.', { status: 429 })
+  }
+
   const { question } = await req.json()
 
   if (!question || typeof question !== 'string') {
-    return new Response('Missing "question" in request body', {
-      status: 400,
-    })
+    return new Response('Missing "question" in request body', { status: 400 })
+  }
+
+  if (question.length > MAX_QUESTION_LENGTH) {
+    return new Response(`Question too long (max ${MAX_QUESTION_LENGTH} characters)`, { status: 400 })
   }
 
   const encoder = new TextEncoder()
@@ -26,55 +40,38 @@ export async function POST(req: Request) {
     async start(controller) {
       const send = (event: string, data: unknown) => {
         controller.enqueue(
-          encoder.encode(
-            `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
-          ),
+          encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
         )
       }
 
       try {
         const events = await graph.stream(
-          {
-            messages: [new HumanMessage(question)],
-          },
-          {
-            configurable: {
-              thread_id: `run-${Date.now()}`,
-            },
-            streamMode: 'updates',
-          },
+          { messages: [new HumanMessage(question)] },
+          { configurable: { thread_id: `run-${Date.now()}` }, streamMode: 'updates' }
         )
 
         for await (const chunk of events) {
           for (const [nodeName, update] of Object.entries(chunk)) {
-            const nodeUpdate = update as Record<string, unknown>
-
             send('step', {
               node: nodeName,
               label: NODE_LABELS[nodeName] ?? nodeName,
-
               preview:
-                nodeUpdate.research ??
-                nodeUpdate.analysis ??
-                nodeUpdate.draft ??
-                nodeUpdate.reviewNotes ??
+                (update as Record<string, unknown>).research ??
+                (update as Record<string, unknown>).analysis ??
+                (update as Record<string, unknown>).draft ??
+                (update as Record<string, unknown>).reviewNotes ??
                 '',
             })
 
-            if (nodeUpdate.draft) {
-              send('report', {
-                draft: nodeUpdate.draft,
-              })
+            if ((update as Record<string, unknown>).draft) {
+              send('report', { draft: (update as Record<string, unknown>).draft })
             }
           }
         }
 
         send('done', {})
       } catch (err) {
-        send('error', {
-          message:
-            err instanceof Error ? err.message : String(err),
-        })
+        send('error', { message: err instanceof Error ? err.message : String(err) })
       } finally {
         controller.close()
       }
@@ -83,10 +80,9 @@ export async function POST(req: Request) {
 
   return new Response(stream, {
     headers: {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
     },
   })
 }

@@ -18,6 +18,7 @@ export default function Home() {
   const [draft, setDraft] = useState('')
   const [approved, setApproved] = useState(false)
   const [error, setError] = useState('')
+  const [caseId, setCaseId] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   async function runResearch() {
@@ -28,6 +29,7 @@ export default function Home() {
     setDraft('')
     setApproved(false)
     setError('')
+    setCaseId(null)
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -40,6 +42,9 @@ export default function Home() {
         signal: controller.signal,
       })
 
+      if (res.status === 429) {
+        throw new Error('Too many requests from this connection — please wait a few minutes and try again.')
+      }
       if (!res.ok) {
         throw new Error(`Request failed (${res.status}). The server may be unreachable or misconfigured.`)
       }
@@ -69,6 +74,13 @@ export default function Home() {
             setSteps((prev) => [...prev, data as TraceStep])
           } else if (eventType === 'report') {
             setDraft(data.draft)
+            // Persist the draft as a caseReport document the moment it's
+            // ready - this is the "agent moves a draft forward" half of
+            // the workflow. Fire-and-forget: a write failure shouldn't
+            // block the UI, same philosophy as the MCP fallback.
+            persistDraft(question, data.draft).then((id) => {
+              if (id) setCaseId(id)
+            })
           } else if (eventType === 'error') {
             setError(data.message)
           }
@@ -78,6 +90,38 @@ export default function Home() {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setRunning(false)
+    }
+  }
+
+  async function persistDraft(q: string, draftText: string): Promise<string | null> {
+    try {
+      const res = await fetch('/api/cases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: q, draftText }),
+      })
+      const data = await res.json()
+      return data.id ?? null
+    } catch {
+      return null // workflow persistence is best-effort, not load-bearing
+    }
+  }
+
+  async function handleApprove(finalText: string) {
+    setDraft(finalText)
+    setApproved(true)
+
+    if (caseId) {
+      // The workflow transition: draft -> approved, as a patch on the same
+      // Sanity document - this is the "human approves through the same
+      // transition" half of the workflow.
+      fetch(`/api/cases/${caseId}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ finalText }),
+      }).catch(() => {
+        // best-effort - the case closes in the UI either way
+      })
     }
   }
 
@@ -95,6 +139,10 @@ export default function Home() {
         </p>
         <Link href="/sources" className="mono" style={{ fontSize: 12, color: 'var(--teal)', textDecoration: 'none' }}>
           browse the knowledge base →
+        </Link>
+        {' · '}
+        <Link href="/cases" className="mono" style={{ fontSize: 12, color: 'var(--teal)', textDecoration: 'none' }}>
+          case history →
         </Link>
 
         <div style={{ marginTop: 24 }}>
@@ -183,7 +231,7 @@ export default function Home() {
 
       <section style={{ display: 'flex', alignItems: 'flex-start', paddingTop: 8, minWidth: 0 }}>
         {draft && !approved ? (
-          <ApprovalGate draft={draft} onApprove={(final) => { setDraft(final); setApproved(true) }} />
+          <ApprovalGate draft={draft} onApprove={handleApprove} />
         ) : draft && approved ? (
           <ReportView report={draft} research={researchText} />
         ) : running ? (
